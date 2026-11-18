@@ -1,0 +1,275 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>PathSnap — Distributed Map-Matching Evaluator UI</title>
+    <!-- Tailwind CSS -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <!-- Leaflet CSS & JS -->
+    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+    <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+    <style>
+        #map { height: 600px; width: 100%; border-radius: 0.75rem; }
+    </style>
+</head>
+<body class="bg-slate-900 text-slate-100 min-h-screen flex flex-col font-sans">
+
+    <!-- Header -->
+    <header class="bg-slate-800 border-b border-slate-700 px-6 py-4 flex items-center justify-between shadow-md">
+        <div class="flex items-center space-x-3">
+            <span class="text-2xl">🛰️</span>
+            <div>
+                <h1 class="text-xl font-bold text-white tracking-wide">PathSnap Distributed Evaluator UI</h1>
+                <p class="text-xs text-slate-400">UE24CS352A Machine Learning — Team 6 (Distributed Two-Laptop Deployment)</p>
+            </div>
+        </div>
+        <div class="flex items-center space-x-3 text-sm">
+            <span class="flex h-3 w-3 relative">
+                <span id="status-pulse" class="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
+                <span id="status-dot" class="relative inline-flex rounded-full h-3 w-3 bg-emerald-500"></span>
+            </span>
+            <span id="status-text" class="text-emerald-400 font-medium">Server Connected</span>
+        </div>
+    </header>
+
+    <!-- Main Content Grid -->
+    <main class="flex-1 p-6 grid grid-cols-1 lg:grid-cols-4 gap-6 max-w-7xl mx-auto w-full">
+        
+        <!-- Left Sidebar Controls -->
+        <div class="lg:col-span-1 space-y-6">
+            <!-- Server Connection Card -->
+            <div class="bg-slate-800 rounded-xl p-5 border border-slate-700 shadow-sm space-y-4">
+                <h2 class="text-sm font-semibold uppercase tracking-wider text-slate-400">1. Laptop 1 API Server</h2>
+                <div>
+                    <label class="block text-xs text-slate-400 mb-1">Server Host URL / IP</label>
+                    <input id="server-url" type="text" value="http://localhost:8000" 
+                           class="w-full bg-slate-950 border border-slate-700 rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:border-indigo-500 font-mono" />
+                </div>
+                <button onclick="checkHealth()" class="w-full bg-slate-700 hover:bg-slate-600 text-xs py-2 rounded-lg font-medium transition duration-150">
+                    Test Server Connection
+                </button>
+            </div>
+
+            <!-- Trip Selection & Trigger Card -->
+            <div class="bg-slate-800 rounded-xl p-5 border border-slate-700 shadow-sm space-y-4">
+                <h2 class="text-sm font-semibold uppercase tracking-wider text-slate-400">2. Evaluation Trip</h2>
+                <div>
+                    <label class="block text-xs text-slate-400 mb-1">Select Evaluator Trip</label>
+                    <select id="trip-select" class="w-full bg-slate-950 border border-slate-700 rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:border-indigo-500">
+                        <option value="00000015">Trip 00000015 (Evaluator Test)</option>
+                        <option value="00000017">Trip 00000017 (Evaluator Test)</option>
+                        <option value="00000023">Trip 00000023 (Evaluator Test)</option>
+                        <option value="00000030">Trip 00000030 (Evaluator Test)</option>
+                        <option value="00000049">Trip 00000049 (Evaluator Test)</option>
+                        <option value="00000059">Trip 00000059 (Evaluator Test)</option>
+                        <option value="00000067">Trip 00000067 (Evaluator Test)</option>
+                        <option value="00000073">Trip 00000073 (Evaluator Test)</option>
+                        <option value="00000087">Trip 00000087 (Evaluator Test)</option>
+                        <option value="00000094">Trip 00000094 (Evaluator Test)</option>
+                    </select>
+                </div>
+                <button id="run-btn" onclick="runEvaluation()" class="w-full bg-indigo-600 hover:bg-indigo-500 text-white font-semibold py-2.5 rounded-lg text-sm shadow-md transition duration-150 flex items-center justify-center space-x-2">
+                    <span id="btn-spinner" class="hidden animate-spin">🔄</span>
+                    <span id="btn-text">Run Map-Matching & Score</span>
+                </button>
+            </div>
+
+            <!-- Scorecard Summary -->
+            <div id="metrics-card" class="bg-slate-800 rounded-xl p-5 border border-slate-700 shadow-sm space-y-4">
+                <h2 class="text-sm font-semibold uppercase tracking-wider text-slate-400">3. Live Evaluation Scorecard</h2>
+                
+                <div class="space-y-3">
+                    <div class="bg-slate-900/80 p-3 rounded-lg border border-slate-700/50">
+                        <div class="text-xs text-slate-400">Observation Top-1 Accuracy</div>
+                        <div class="flex items-baseline space-x-2 mt-1">
+                            <span id="metric-hmm-acc" class="text-2xl font-bold text-emerald-400">--%</span>
+                            <span id="metric-clf-acc" class="text-xs text-slate-400 line-through">--%</span>
+                            <span id="metric-acc-gain" class="text-xs font-semibold text-emerald-400 bg-emerald-950/60 px-1.5 py-0.5 rounded">--</span>
+                        </div>
+                    </div>
+
+                    <div class="bg-slate-900/80 p-3 rounded-lg border border-slate-700/50">
+                        <div class="text-xs text-slate-400">Route Continuity (Graph Adjacency)</div>
+                        <div class="flex items-baseline space-x-2 mt-1">
+                            <span id="metric-hmm-cont" class="text-2xl font-bold text-sky-400">--%</span>
+                            <span id="metric-clf-cont" class="text-xs text-slate-400 line-through">--%</span>
+                            <span id="metric-cont-gain" class="text-xs font-semibold text-sky-400 bg-sky-950/60 px-1.5 py-0.5 rounded">--</span>
+                        </div>
+                    </div>
+
+                    <div class="grid grid-cols-2 gap-2 text-xs">
+                        <div class="bg-slate-900/80 p-2.5 rounded-lg border border-slate-700/50">
+                            <div class="text-slate-400">Observations</div>
+                            <div id="metric-obs" class="font-mono font-bold text-slate-200 mt-0.5">--</div>
+                        </div>
+                        <div class="bg-slate-900/80 p-2.5 rounded-lg border border-slate-700/50">
+                            <div class="text-slate-400">Latency</div>
+                            <div id="metric-latency" class="font-mono font-bold text-slate-200 mt-0.5">-- ms</div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Right Side: Interactive Folium/Leaflet Map -->
+        <div class="lg:col-span-3 flex flex-col space-y-4">
+            <div class="bg-slate-800 rounded-xl p-4 border border-slate-700 shadow-sm flex flex-col flex-1">
+                <div class="flex items-center justify-between mb-3">
+                    <h2 class="text-sm font-semibold uppercase tracking-wider text-slate-400">Interactive Trajectory & Route Reconstruction Map</h2>
+                    <div class="flex items-center space-x-4 text-xs">
+                        <span class="flex items-center space-x-1.5">
+                            <span class="w-3 h-3 rounded-full bg-blue-500 inline-block"></span>
+                            <span class="text-slate-300">Raw GPS Points</span>
+                        </span>
+                        <span class="flex items-center space-x-1.5">
+                            <span class="w-4 h-1 bg-emerald-500 inline-block rounded"></span>
+                            <span class="text-slate-300">HMM Matched Route</span>
+                        </span>
+                    </div>
+                </div>
+                <div id="map" class="shadow-inner"></div>
+            </div>
+        </div>
+
+    </main>
+
+    <!-- Footer -->
+    <footer class="bg-slate-950 border-t border-slate-800 text-center py-3 text-xs text-slate-500">
+        PathSnap Map-Matching System &copy; 2026 Team 6 &bull; Fully Group-Aware 5-Fold Cross Validation &bull; Zero Server Data Leakage
+    </footer>
+
+    <!-- Script Logic -->
+    <script>
+        let map = L.map('map').setView([48.137, 11.575], 13);
+        // Use Esri World Street Map: 100% free, zero API key required, zero watermarks, high performance
+        L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/World_Street_Map/MapServer/tile/{z}/{y}/{x}', {
+            maxZoom: 19,
+            attribution: 'Tiles &copy; Esri &mdash; Source: Esri, DeLorme, NAVTEQ, USGS, TomTom'
+        }).addTo(map);
+
+        let gpsLayerGroup = L.layerGroup().addTo(map);
+        let routeLayerGroup = L.layerGroup().addTo(map);
+
+        async function checkHealth() {
+            const baseUrl = document.getElementById('server-url').value.trim();
+            const dot = document.getElementById('status-dot');
+            const pulse = document.getElementById('status-pulse');
+            const text = document.getElementById('status-text');
+            try {
+                const res = await fetch(`${baseUrl}/api/health`, { method: 'GET' });
+                if (res.ok) {
+                    dot.className = "relative inline-flex rounded-full h-3 w-3 bg-emerald-500";
+                    pulse.className = "animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75";
+                    text.innerText = "Server Online (Model Ready)";
+                    text.className = "text-emerald-400 font-medium";
+                    loadTripsList(baseUrl);
+                } else {
+                    throw new Error();
+                }
+            } catch (err) {
+                dot.className = "relative inline-flex rounded-full h-3 w-3 bg-rose-500";
+                pulse.className = "hidden";
+                text.innerText = "Server Disconnected";
+                text.className = "text-rose-400 font-medium";
+            }
+        }
+
+        async function loadTripsList(baseUrl) {
+            try {
+                const res = await fetch(`${baseUrl}/api/trips`);
+                if (res.ok) {
+                    const data = await res.json();
+                    const sel = document.getElementById('trip-select');
+                    if (data.trips && data.trips.length > 0) {
+                        sel.innerHTML = '';
+                        data.trips.forEach(t => {
+                            const opt = document.createElement('option');
+                            opt.value = t;
+                            opt.innerText = `Trip ${t}`;
+                            sel.appendChild(opt);
+                        });
+                    }
+                }
+            } catch (e) {}
+        }
+
+        async function runEvaluation() {
+            const baseUrl = document.getElementById('server-url').value.trim();
+            const tripId = document.getElementById('trip-select').value;
+            const btnSpinner = document.getElementById('btn-spinner');
+            const btnText = document.getElementById('btn-text');
+            const runBtn = document.getElementById('run-btn');
+
+            btnSpinner.classList.remove('hidden');
+            btnText.innerText = "Processing Trajectory...";
+            runBtn.disabled = true;
+
+            try {
+                const res = await fetch(`${baseUrl}/api/evaluate/${tripId}`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' }
+                });
+
+                if (!res.ok) {
+                    throw new Error(`Server returned error ${res.status}`);
+                }
+
+                const data = await res.json();
+
+                // Update scorecards
+                document.getElementById('metric-hmm-acc').innerText = `${data.hmm_top1_accuracy.toFixed(2)}%`;
+                document.getElementById('metric-clf-acc').innerText = `${data.classifier_top1_accuracy.toFixed(2)}%`;
+                document.getElementById('metric-acc-gain').innerText = `+${data.accuracy_gain_pct.toFixed(2)}%`;
+
+                document.getElementById('metric-hmm-cont').innerText = `${data.hmm_continuity_pct.toFixed(1)}%`;
+                document.getElementById('metric-clf-cont').innerText = `${data.classifier_continuity_pct.toFixed(1)}%`;
+                document.getElementById('metric-cont-gain').innerText = `+${data.continuity_gain_pct.toFixed(1)}%`;
+
+                document.getElementById('metric-obs').innerText = data.observations.toLocaleString();
+                document.getElementById('metric-latency').innerText = `${data.inference_time_ms.toFixed(1)} ms`;
+
+                // Render Map Layers
+                gpsLayerGroup.clearLayers();
+                routeLayerGroup.clearLayers();
+
+                // 1. Raw GPS Circle Markers (downsampled visually if massive)
+                const step = Math.max(1, Math.floor(data.gps_coordinates.length / 500));
+                for (let i = 0; i < data.gps_coordinates.length; i += step) {
+                    const pt = data.gps_coordinates[i];
+                    L.circleMarker(pt, {
+                        radius: 3,
+                        color: '#3b82f6',
+                        fillColor: '#60a5fa',
+                        fillOpacity: 0.6,
+                        weight: 1
+                    }).bindTooltip(`GPS #${i}`).addTo(gpsLayerGroup);
+                }
+
+                // 2. Reconstructed Route Polyline
+                if (data.predicted_route_coords && data.predicted_route_coords.length > 0) {
+                    const polyline = L.polyline(data.predicted_route_coords, {
+                        color: '#10b981',
+                        weight: 5,
+                        opacity: 0.85,
+                        lineCap: 'round',
+                        lineJoin: 'round'
+                    }).addTo(routeLayerGroup);
+
+                    map.fitBounds(polyline.getBounds(), { padding: [30, 30] });
+                }
+
+            } catch (err) {
+                alert(`Evaluation failed: ${err.message}. Please verify the Laptop 1 IP and server status.`);
+            } finally {
+                btnSpinner.classList.add('hidden');
+                btnText.innerText = "Run Map-Matching & Score";
+                runBtn.disabled = false;
+            }
+        }
+
+        // Initial check
+        window.onload = checkHealth;
+    </script>
+</body>
+</html>
